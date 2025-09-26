@@ -1,23 +1,36 @@
-#!/usr/bin/python
-# -*- coding: iso-8859-1 -*-
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import bc246t
 import time
+import signal
 import sys
 
 def main():
-    i = bc246t.Interface()
-    #i.debug = True
-
-    format = """  ,------------------------.
-  |    %s    |
-  |    %s    |
-  |    %3.3s  %11.11s    |
-  `------------------------'
+    format = """Free: %s%%          Batt: %.4sV
+  ╔════════════════════════╗
+  ║    %s    ║
+  ║    %s    ║
+  ║    %3.3s  %11.11s    ║
+  ╚════════════════════════╝
 %3.3s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s %3.3s %3.3s %5.5s %4.4s
 %3.3s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s%1.1s %2.2s %1.1s%2.2s %3.3s %1.1s %1.1s"""
 
+    i = bc246t.Interface()
+    used_memory = None
+    battery_voltage = None
+    countdown = 0
+
     while True:
+        if countdown == 0:
+            i.enter_program_mode()
+            free_memory = 100 - i.get_used_memory()
+            battery_voltage = (3.3 * i.get_battery_voltage())/255
+            i.exit_program_mode()
+
+            countdown = 1000
+
+        countdown = countdown - 1
 
         s = i.get_status()
 
@@ -27,6 +40,8 @@ def main():
             freq = "%s.%sMhz" % (freq[0:-4].lstrip("0"), freq[-4:])
 
         buf = format % (
+            free_memory,
+            battery_voltage,
             s["line1"],
             s["line2"],
             av, freq,
@@ -68,8 +83,26 @@ def main():
             s["cc9_icon"]       == "0" and " "      or "©"
         )
 
-        print buf + "\033[%dA" % (buf.count("\n") + 1)
+        print(buf + "\033[%dA" % (buf.count("\n") + 1))
         time.sleep(.1)
 
+def shutdown():
+    # show cursor
+    sys.stdout.write("\033[?25h\r")
+    sys.stdout.flush()
+
+def handle_sigint(sig, frame):
+    shutdown()
+    sys.exit(0)
+
 if __name__ == "__main__":
-    main()
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    try:
+        # hide cursor
+        sys.stdout.write("\033[?25l")
+        sys.stdout.flush()
+
+        main()
+    finally:
+        shutdown()

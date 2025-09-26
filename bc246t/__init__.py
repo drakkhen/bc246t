@@ -1,7 +1,35 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
+import os
 import serial
-from constants import *
+from .constants import *
+from .errors import *
+from .schema import schema
+
+SYSTEM_DEFAULTS = {
+    'quick_key': None,
+    'hold_time': 2,
+    'lockout': False,
+    'attenuation': False,
+    'delay_time': 2,
+    'data_skip': False,
+    'emergency_alert': False,
+}
+
+GROUP_DEFAULTS = {
+    'group_type': 'C',
+    'lockout': False,
+}
+
+CHANNEL_DEFAULTS = {
+    'search_step': 0,
+    'ctcss_dcs_mode': 0,
+    'ctcss_dcs_tone_lockout': False,
+    'lockout': False,
+    'priority': 0,
+    'attenuation': False,
+    'alert': False,
+}
 
 def _decode_icon(v):
     if v == "0": return ICON_OFF
@@ -11,51 +39,21 @@ def _decode_icon(v):
     raise UnidenUnexpectedResponseError
 
 
-class UnidenError(Exception):
-    pass
-
-class UnidenOutOfResourcesError(UnidenError):
-    def __init__(self, s="Out of resources"):
-        return UnidenError.__init__(self, s)
-
-class UnidenValueError(UnidenError):
-    def __init__(self, s="Command format error / Value error"):
-        return UnidenError.__init__(self, s)
-
-class UnidenSyncError(UnidenError):
-    def __init__(self, s="The command is invalid at the time"):
-        return UnidenError.__init__(self, s)
-
-class UnidenFramingError(UnidenError):
-    def __init__(self, s="Framing error"):
-        return UnidenError.__init__(self, s)
-
-class UnidenOverrunError(UnidenError):
-    def __init__(self, s="Overrun error"):
-        return UnidenError.__init__(self, s)
-
-class UnidenUnexpectedResponseError(UnidenError):
-    def __init__(self, s="Unexpected response"):
-        return UnidenError.__init__(self, s)
-
-
 class Interface:
-
-    def __init__(self, port="/dev/tty.usbserial-FTG4OPJF", baudrate=57600):
+    def __init__(self, port="/dev/ttyS0", baudrate=57600):
         self.device = serial.Serial(port=port, baudrate=baudrate)
-        self.debug = False
+        self.debug = 'DEBUG' in os.environ
 
     def __send(self, buf):
-        self.device.write("%s\r" % buf)
+        self.device.write(("%s\r" % buf).encode())
 
         if self.debug:
-            print "SEND -> %s" % buf
+            print("SEND -> %s" % buf)
 
         buf = ""
 
         while len(buf) == 0 or buf[-1] != "\r":
-
-            recv = self.device.read(1)
+            recv = self.device.read(1).decode()
 
             if len(recv) == 0:
                 raise Exception("timeout!")
@@ -63,7 +61,6 @@ class Interface:
             buf += recv
 
         buf = buf.rstrip("\r")
-
         res = buf.split(",")
 
         if len(res) == 1 and res[0] == "ERR" or len(res) == 2 and res[1] == "ERR":
@@ -73,9 +70,19 @@ class Interface:
             raise UnidenSyncError
 
         if self.debug:
-            print "RECV -> %s" % repr(res)
+            print("RECV -> %s" % repr(res))
 
         return res
+
+    def _send(self, cmd, *args):
+        prepared = [cmd]
+
+        for v in args:
+            if v.__class__ is bool:
+                v = v and 1 or 0
+            prepared.append(str(v))
+
+        return self.__send(','.join(prepared))
 
     ########################################################################
     ##  Remote Control
@@ -101,8 +108,7 @@ class Interface:
 
         When TGID is not displayed, all values will be ""
         """
-
-        cmd, sys_type, tgid, id_srch_mode, name1, name2, name3 = self.__send("GID")
+        cmd, sys_type, tgid, id_srch_mode, name1, name2, name3 = self._send("GID")
 
         if cmd != "GID" or (id_srch_mode != "" and id_srch_mode not in MODE__VALUES):
             raise UnidenUnexpectedResponseError
@@ -115,7 +121,6 @@ class Interface:
             "group_name": name2,
             "tgid_name": name3
         }
-
 
     def push_key(self, key, mode=KEY_MODE_PRESS):
         """
@@ -157,17 +162,15 @@ class Interface:
         there is a KEY_CODE_POWER value.  If you want to power the scanner off,
         see power_off().
         """
-
         if key not in KEY_CODE__VALUES or mode not in KEY_MODE__VALUES:
             raise ValueError
 
-        cmd, ok = self.__send("KEY,%s,%s" % (key, mode))
+        cmd, ok = self._send("KEY", key, mode)
 
         if cmd != "KEY":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
-
 
     def power_off(self):
         """
@@ -176,18 +179,16 @@ class Interface:
         Note that once it's turned off, you cannot turn it back on or otherwise
         control the scanner via the serial port.
         """
-
-        cmd, ok = self.__send("POF")
+        cmd, ok = self._send("POF")
 
         if cmd != "POF":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
-    #def quick_search_hold(...):
+    def quick_search_hold(self):
         # TODO
-
+        pass
 
     def get_status(self):
         """
@@ -264,9 +265,8 @@ class Interface:
                 low_battery
                 weather_alert
         """
-
         cmd, l1_char, l1_mode, l2_char, l2_mode, icon1, icon2, reserve, sql, \
-            mut, bat, wat = self.__send("STS")
+            mut, bat, wat = self._send("STS")
 
         #l1_char = l1_char.rstrip()
         l1_mode = l1_mode.strip()
@@ -340,19 +340,16 @@ class Interface:
 
     def get_model(self):
         """Returns model information"""
-
-        cmd, model = self.__send("MDL")
+        cmd, model = self._send("MDL")
 
         if cmd != "MDL":
             raise UnidenUnexpectedResponseError
 
         return model
 
-
     def get_firmware_version(self):
         """Returns firmware version"""
-
-        cmd, ver = self.__send("VER")
+        cmd, ver = self._send("VER")
 
         if cmd != "VER":
             raise UnidenUnexpectedResponseError
@@ -374,8 +371,7 @@ class Interface:
         This command is invalid when the Scanner is in Menu Mode, during Direct
         Entry operation, and during Quick Save operation. 
         """
-
-        cmd, ok = self.__send("PRG")
+        cmd, ok = self._send("PRG")
 
         if cmd != "PRG":
             raise UnidenUnexpectedResponseError
@@ -384,8 +380,7 @@ class Interface:
 
     def exit_program_mode(self):
         """Exit Program Mode, and goes back in to Scan Hold Mode."""
-
-        cmd, ok = self.__send("EPG")
+        cmd, ok = self._send("EPG")
 
         if cmd != "EPG":
             raise UnidenUnexpectedResponseError
@@ -404,8 +399,7 @@ class Interface:
 
             FIXME
         """
-
-        cmd, val = self.__send("BLT")
+        cmd, val = self._send("BLT")
 
         if cmd != "BLT" or val not in BACKLIGHT__VALUES:
             raise UnidenUnexpectedResponseError
@@ -422,17 +416,15 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
         if setting not in BACKLIGHT__VALUES:
             raise ValueError
 
-        cmd, ok = self.__send("BLT,%s" % str(setting))
+        cmd, ok = self._send("BLT", setting)
 
         if cmd != "BLT":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
-
 
     def get_battery_savings_mode(self):
         """
@@ -443,13 +435,12 @@ class Interface:
             BATT_SAVE_ON
             BATT_SAVE_OFF
         """
-
-        cmd, val = self.__send("BSV")
+        cmd, val = self._send("BSV")
 
         if cmd != "BSV" or val not in BATT_SAVE__VALUES:
             raise UnidenUnexpectedResponseError
 
-        return val
+        return val == "1"
 
     def set_battery_savings_mode(self, setting):
         """
@@ -462,17 +453,15 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        if setting not in BATT_SAVE__VALUES:
+        if setting not in [True, False]:
             raise ValueError
 
-        cmd, ok = self.__send("BSV,%s" % str(setting))
+        cmd, ok = self._send("BSV", setting)
 
         if cmd != "BSV":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
-
 
     def clear_all_memory(self):
         """
@@ -481,15 +470,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-        # FIXME:  ^^ "factory setting"??
-
-        cmd, ok = self.__send("CLR")
+        cmd, ok = self._send("CLR")
 
         if cmd != "CLR":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
-
 
     def get_key_beep(self):
         """
@@ -497,8 +483,7 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, val = self.__send("KBP")
+        cmd, val = self._send("KBP")
 
         if cmd != "KBP" or val not in ("0", "1"):
             raise UnidenUnexpectedResponseError
@@ -511,14 +496,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
         if setting not in (True, False):
             raise ValueError
 
-        cmd, ok = self.__send("KBP,%s" % (setting and "1" or "0"))
+        cmd, ok = self._send("KBP", setting)
 
         return ok == "OK"
-
 
     def get_greeting(self):
         """
@@ -527,13 +510,12 @@ class Interface:
         If the default message is being used, the returned values will be
         GREETING_DEFAULT ('%s').
         """ % GREETING_DEFAULT
-
-        cmd, line1, line2 = self.__send("OMS")
+        cmd, line1, line2 = self._send("OMS")
 
         if cmd != "OMS":
             raise UnidenUnexpectedResponseError
 
-        return line1, line2
+        return [line1, line2]
 
     def set_greeting(self, line1, line2=""):
         """
@@ -547,17 +529,15 @@ class Interface:
 
         If the second line is not given it will be blank.
         """ % (GREETING_MAX_LINE_LEN, GREETING_DEFAULT)
-
         line1 = line1[:GREETING_MAX_LINE_LEN]
         line2 = line2[:GREETING_MAX_LINE_LEN]
 
-        cmd, ok = self.__send("OMS,%s,%s" % (line1, line2))
+        cmd, ok = self._send("OMS", line1, line2)
 
         if cmd != "OMS":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
-
 
     def get_priority_mode(self):
         """
@@ -571,13 +551,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, val = self.__send("PRI")
+        cmd, val = self._send("PRI")
 
         if cmd != "PRI" or val not in PRIORITY_MODE__VALUES:
             raise UnidenUnexpectedResponseError
 
-        return val
+        return int(val)
 
     def set_priority_mode(self, setting):
         """
@@ -591,11 +570,10 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        if setting not in PRIORITY_MODE__VALUES:
+        if setting not in [True, False]:
             raise ValueError
 
-        cmd, ok = self.__send("PRI,%s" % setting)
+        cmd, ok = self._send("PRI", setting)
 
         if cmd != "PRI":
             raise UnidenUnexpectedResponseError
@@ -612,14 +590,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, val = self.__send("SCT")
+        cmd, val = self._send("SCT")
 
         if cmd != "SCT":
             raise UnidenUnexpectedResponseError
 
         return val
-
 
     def get_system_index_head(self):
         """
@@ -627,15 +603,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-        # FIXME: ^^ engrish
-
-        cmd, val = self.__send("SIH")
+        cmd, val = self._send("SIH")
 
         if cmd != "SIH":
             raise UnidenUnexpectedResponseError
 
         return int(val)
-
 
     def get_system_index_tail(self):
         """
@@ -643,21 +616,17 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-        # FIXME: ^^ engrish
-
-        cmd, val = self.__send("SIT")
+        cmd, val = self._send("SIT")
 
         if cmd != "SIT":
             raise UnidenUnexpectedResponseError
 
         return int(val)
 
-
     def __quick_lockout_common(self, command, setting=None):
         """
         Common code for the lockout commands.  Not indended for direct use.
         """
-
         # Order is significant
         valid_values = QUICK_LOCKOUT_KEY__VALUES[:].sort()
 
@@ -667,7 +636,7 @@ class Interface:
             # Get
             result = 0
 
-            cmd, val = self.__send(command)
+            cmd, val = self._send(command)
 
             if cmd != command or len(val) != len(valid_values):
                 raise UnidenUnexpectedResponseError
@@ -685,7 +654,7 @@ class Interface:
         for v in range(len(valid_values)):
             val += setting & valid_values[v] != 0 and "1" or "0"
 
-        cmd, ok = self.__send("%s,%s" % (command, val))
+        cmd, ok = self._send(command, val)
 
         if cmd != command:
             raise UnidenUnexpectedResponseError
@@ -718,7 +687,6 @@ class Interface:
             if res & QUICK_LOCKOUT_KEY_5 != 0:
                 print "System 5 is locked out"
         """
-
         return self.__quick_lockout_common("QSL")
 
     def set_system_quick_lockout(self, setting):
@@ -748,7 +716,6 @@ class Interface:
 
             print "System 5 is now locked out"
         """
-
         return self.__quick_lockout_common("QSL", setting)
 
     def quick_lock_system(self, k):
@@ -768,7 +735,6 @@ class Interface:
             QUICK_LOCKOUT_KEY_8
             QUICK_LOCKOUT_KEY_9
         """
-
         if k not in QUICK_LOCKOUT_KEY__VALUES:
             raise ValueError
 
@@ -797,7 +763,6 @@ class Interface:
             QUICK_LOCKOUT_KEY_8
             QUICK_LOCKOUT_KEY_9
         """
-
         if k not in QUICK_LOCKOUT_KEY__VALUES:
             raise ValueError
 
@@ -808,7 +773,6 @@ class Interface:
             self.set_ssytem_quick_lockout(new_setting)
 
         return new_setting
-
 
     def get_group_quick_lockout(self):
         """
@@ -836,7 +800,6 @@ class Interface:
             if res & QUICK_LOCKOUT_KEY_5 != 0:
                 print "Group 5 is locked out"
         """
-
         return self.__quick_lockout_common("QGL")
 
     def set_group_quick_lockout(self, setting):
@@ -866,9 +829,7 @@ class Interface:
 
             print "Group 5 is now locked out"
         """
-
         return self.__quick_lockout_common("QGL", setting)
-
 
     def quick_lock_group(self, k):
         """
@@ -887,7 +848,6 @@ class Interface:
             QUICK_LOCKOUT_KEY_8
             QUICK_LOCKOUT_KEY_9
         """
-
         if k not in QUICK_LOCKOUT_KEY__VALUES:
             raise ValueError
 
@@ -916,7 +876,6 @@ class Interface:
             QUICK_LOCKOUT_KEY_8
             QUICK_LOCKOUT_KEY_9
         """
-
         if k not in QUICK_LOCKOUT_KEY__VALUES:
             raise ValueError
 
@@ -927,7 +886,6 @@ class Interface:
             self.set_ssytem_quick_lockout(new_setting)
 
         return new_setting
-
 
     def create_system(self, system_type):
         """
@@ -952,11 +910,10 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
         if not system_type in SYSTEM_TYPE__VALUES:
             raise ValueError
 
-        cmd, idx = self.__send("CSY,%s" % system_type)
+        cmd, idx = self._send("CSY", system_type)
 
         if cmd != "CSY":
             raise UnidenUnexpectedResultError
@@ -964,8 +921,7 @@ class Interface:
         if idx == "-1":
             raise UnidenOutOfResourcesError
 
-        return idx
-
+        return int(idx)
 
     def delete_system(self, idx):
         """
@@ -973,14 +929,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, ok = self.__send("DSY,%s" % str(idx))
+        cmd, ok = self._send("DSY", idx)
 
         if cmd != "DSY":
             raise UnidenUnexpectedResultError
 
         return ok == "OK"
-
 
     def copy_system(self, idx, name):
         """
@@ -993,14 +947,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, new_idx = self.__self("CPS,%s,%s" % (str(idx), name))
+        cmd, new_idx = self.__self("CPS", idx, name)
 
         if cmd != "CPS":
             raise UnidenUnexpectedResultError
 
         return new_idx
-
 
     def get_system_info(self, idx):
         """
@@ -1026,9 +978,8 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
         cmd, sys_type, name, quick_key, hld, lout, att, dly, skp, emg, rev_index, \
-            fwd_index, chn_grp_head, chn_grp_tail, seq_no = self.__send("SIN,%s" % idx)
+            fwd_index, chn_grp_head, chn_grp_tail, seq_no = self._send("SIN", idx)
 
         if cmd != "SIN":
             raise UnidenUnexpectedResultError
@@ -1036,13 +987,13 @@ class Interface:
         return {
             "system_type": sys_type,
             "name": name,
-            "quick_key": quick_key,
-            "hold_time": hld,
-            "lockout": lout,
-            "attenuation": att,
+            "quick_key": quick_key != '.' and int(quick_key) or None,
+            "hold_time": int(hld),
+            "lockout": lout == "1",
+            "attenuation": att == "1",
             "delay_time": int(dly),
-            "data_skip": skp,
-            "emergency_alert": emg,
+            "data_skip": skp == "1",
+            "emergency_alert": emg == "1",
             "reverse_index": rev_index != "-1" and int(rev_index) or None,
             "forward_index": fwd_index != "-1" and int(fwd_index) or None,
             "group_head_index": int(chn_grp_head),
@@ -1050,40 +1001,23 @@ class Interface:
             "sequence_number": int(seq_no)
         }
 
-    def set_system_info(self, index, name=None, quick_key=None, hold_time=None, lockout=None, attenuation=None,
-            delay_time=None, data_skip=None, emergency_alert=None):
-
-        """
-        """
-
+    def set_system_info(self, index, name, v={}):
         orig = self.get_system_info(index)
+        v |= orig | SYSTEM_DEFAULTS
 
-        if name == None:  name = orig["name"]
-        if quick_key == None:  quick_key = orig["quick_key"]
-        if hold_time == None:  hold_time = orig["hold_time"]
-        if lockout == None:  lockout = orig["lockout"]
-        if attenuation == None:  attenuation = orig["attenuation"]
-        if delay_time == None:  delay_time = orig["delay_time"]
-        if data_skip == None:  data_skip = orig["data_skip"]
-        if emergency_alert == None:  emergency_alert = orig["emergency_alert"]
+        if v['quick_key'] is None:
+            v['quick_key'] = '.'
 
-        if attenuation == "":  attenuation = "0"
-
-        vals = [index, name, quick_key, hold_time, lockout, attenuation,
-            delay_time, data_skip, emergency_alert]
-
-        cmd, ok = self.__send("SIN,%s" % ",".join(vals))
+        cmd, ok = self._send("SIN", index, name, v['quick_key'], v['hold_time'],
+            v['lockout'], v['attenuation'], v['delay_time'], v['data_skip'],
+            v['emergency_alert'])
 
         if cmd != "SIN":
             raise UndenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def get_trunk_info(self, index):
-        """
-        """
-
         # TODO
         pass
 
@@ -1091,10 +1025,6 @@ class Interface:
             edacs_format, i_call, c_ch_only, fleet_map, custom_fleet_map, base_frequency1,
             step1, offset1, base_frequencey2, step2, offset2, base_frequency3, step3, offset3,
             talkgroup_head, talkgroup_tail, talkgroup_lockout_head, talkgroup_lockout_tail):
-
-        """
-        """
-
         # TODO
         pass
 
@@ -1113,8 +1043,7 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, frq, lcn, rev_index, fwd_index, sys_index, grp_index = self.__send("TFQ")
+        cmd, frq, lcn, rev_index, fwd_index, sys_index, grp_index = self._send("TFQ")
 
         if cmd != "TFQ":
             raise UnidenUnexpectedResultError
@@ -1134,16 +1063,12 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        # TODO: add validation
-
-        cmd, ok = self.__send("TFQ,%s,%s,%s" % (str(channel_index), frequency, lcn))
+        cmd, ok = self._send("TFQ", channel_index, frequency, lcn)
 
         if cmd != "TFQ":
             raise UnidenUnexpectedResultError
 
         return ok == "OK"
-
 
     def append_channel_group(self, system_index):
         """
@@ -1151,8 +1076,7 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, group_index = self.__send("AGC,%s" % str(system_index))
+        cmd, group_index = self._send("AGC", system_index)
 
         if cmd != "AGC":
             raise UnidenUnexpectedResultError
@@ -1162,15 +1086,13 @@ class Interface:
 
         return group_index
 
-
     def append_talkgroup_id_group(self, system_index):
         """
         Append TGID Group to the system found at the given index.
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, group_index = self.__send("AGI,%s" % str(system_index))
+        cmd, group_index = self._send("AGI", system_index)
 
         if cmd != "AGI":
             raise UnidenUnexpectedResultError
@@ -1180,21 +1102,18 @@ class Interface:
 
         return group_index
 
-
     def delete_group(self, group_index):
         """
         Delete a Channel Group or TGID Group.
 
         This command is only acceptable in Programming Mode.
         """
-
-        cmd, ok = self.__send("DGR,%s" % str(idx))
+        cmd, ok = self._send("DGR", idx)
 
         if cmd != "DGR":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
-
 
     def get_group_info(self, group_index):
         """
@@ -1215,9 +1134,8 @@ class Interface:
 
         This command is only acceptable in Programming Mode.
         """
-
         cmd, grp_type, name, quick_key, lout, rev_index, fwd_index, sys_index, chn_head, \
-            chn_tail, seq_no = self.__send("GIN,%s" % str(group_index))
+            chn_tail, seq_no = self._send("GIN", group_index)
 
         if cmd != "GIN":
             raise UnidenUnexpectedResultError
@@ -1225,8 +1143,8 @@ class Interface:
         return {
             "group_type": grp_type,
             "group_name": name,
-            "quick_key": int(quick_key),
-            "lockout": lout,
+            "quick_key": quick_key != '.' and int(quick_key) or None,
+            "lockout": lout == "1",
             "reverse_index": rev_index != "-1" and int(rev_index) or None,
             "forward_index": fwd_index != "-1" and int(fwd_index) or None,
             "system_index": int(sys_index),
@@ -1235,74 +1153,60 @@ class Interface:
             "group_sequence": int(seq_no)
         }
 
-    def set_group_info(self, group_index, group_name, quick_key, lockout=False):
-        """
-        """
+    def set_group_info(self, index, name, v={}):
+        orig = self.get_group_info(index)
+        v |= orig | GROUP_DEFAULTS
 
-        cmd, ok = self.__send("GIN,%s,%s,%s,%d" % (group_index, group_name,
-            quick_key, lockout and 1 or 0))
+        if v['quick_key'] is None:
+            v['quick_key'] = '.'
+
+        cmd, ok = self._send("GIN", index, name, v['quick_key'], v['lockout'])
 
         if cmd != "GIN":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def append_channel(self, group_index):
-        """
-        """
-
-        cmd, channel_index = self.__send("ACC,%s" % str(group_index))
+        cmd, channel_index = self._send("ACC", group_index)
 
         if cmd != "ACC":
             raise UnidenUnexpectedResponseError
 
         return channel_index
 
-
     def append_talkgroup_id(self, group_index):
-        """
-        """
-
-        cmd, index = self.__send("ACT,%s" % str(group_index))
+        cmd, index = self._send("ACT", group_index)
 
         if cmd != "ACT":
             raise UnidenUnexpectedResponseError
 
         return index
 
-
     def delete_channel(self, index):
-        """
-        """
-
-        cmd, ok = self.__send("DCH,%s" % str(index))
+        cmd, ok = self._send("DCH", index)
 
         if cmd != "DCH":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def get_channel_info(self, index):
-        """
-        """
-
         cmd, name, frq, stp, mod, ctcss_dcs, tlock, lout, pri, att, alt, rev_index, fwd_index, sys_index, grp_index = \
-            self.__send("CIN,%s" % str(index))
+            self._send("CIN", index)
 
         if cmd != "CIN":
             raise UnidenUnexpectedResponseError
 
         return {
             "name": name,
-            "frequency": frq,
-            "search_setup": stp, # FIXME
+            "frequency": int(frq),
+            "search_step": int(stp), # FIXME
             "modulation": mod,
-            "ctcss_dcs_mode": ctcss_dcs,
+            "ctcss_dcs_mode": int(ctcss_dcs),
             "ctcss_dcs_tone_lockout": tlock == "1",
             "lockout": lout == "1",
-            "priority": pri == "1",
+            "priority": int(pri),
             "attenuation": att == "1",
             "alert": alt == "1",
             "reverse_index": rev_index != "-1" and int(rev_index) or None,
@@ -1311,31 +1215,22 @@ class Interface:
             "group_index": int(grp_index)
         }
 
+    def set_channel_info(self, index, name, frequency, modulation, v={}):
+        orig = self.get_channel_info(index)
+        v |= orig | CHANNEL_DEFAULTS
 
-    def set_channel_info(self, index, name, frequency, modulation, search_step="0", ctcss_dcs_mode="0",
-            ctcss_dcs_tone_lockout=False, lockout=False, priority=False, attenuator=False, alarm=False):
-
-        """
-        """
-
-        # FIXME: add validation
-
-        cmd, ok = self.__send("CIN,%s" % ",".join([index, name, frequency, search_step, modulation,
-            ctcss_dcs_mode, ctcss_dcs_tone_lockout and "1" or "0", lockout and "1" or "0",
-            priority and "1" or "0", attenuator and "1" or "0", alarm and "1" or "0"]))
+        cmd, ok = self._send("CIN", index, name, ("%08d" % frequency), v['search_step'],
+            modulation, v['ctcss_dcs_mode'], v['ctcss_dcs_tone_lockout'], v['lockout'],
+            v['priority'], v['attenuation'], v['alert'])
 
         if cmd != "CIN":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def get_talkgroupid_info(self, index):
         cmd, name, tgid, lout, alt, rev_index, fwd_index, sys_index, grp_index = \
-            self.__send("TIN,%s" % str(index))
-
-        """
-        """
+            self._send("TIN", index)
 
         if cmd != "TIN":
             raise UnidenUnexpectedResponseError
@@ -1352,35 +1247,23 @@ class Interface:
         }
 
     def set_talkgroupid_info(self, name, tgid, lockout=False, alert=False):
-        """
-        """
-
-        cmd, ok = self.__send("TIN,%s,%s,%s,%s" % (name, tgid, lockout and "1" or "0",
-            alert and "1" or "0"))
+        cmd, ok = self._send("TIN", name, tgid, lockout, alert)
 
         if cmd != "TIN":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def get_lockout_talkgroupid(self, system_index):
-        """
-        """
-
-        cmd, tgid = self.__send("GLI,%s" % str(system_index))
+        cmd, tgid = self._send("GLI", system_index)
 
         if cmd != "GLI":
             raise UnidenUnexpectedResponseError
 
         return tgid
 
-
     def unlock_talkgroupid(self, system_index, tgid):
-        """
-        """
-
-        cmd, ok = self.__send("ULI,%s,%s" % str(system_index), str(tgid))
+        cmd, ok = self._send("ULI", system_index, tgid)
 
         if cmd != "ULI":
             raise UnidenUnexpectedResponseError
@@ -1388,69 +1271,50 @@ class Interface:
         return ok == "OK"
 
     def lock_talkgroup_id(self, system_index, tgid):
-        """
-        """
-
-        cmd, ok = self.__send("LOI,%s,%s" % (str(system_index), str(tgid)))
+        cmd, ok = self._send("LOI", system_index, tgid)
 
         if cmd != "LOI":
             raise UnidenUnexpectedResponzeError
 
         return ok == "OK"
 
-
     def get_reverse_index(self, index):
-        """
-        """
-
-        cmd, index = self.__send("REV,%s" % str(index))
+        cmd, index = self._send("REV", index)
 
         if cmd != "REV":
             raise UnidenUnexpectedResponseError
 
-        return index
+        return int(index)
 
     def get_forward_index(self, index):
-        """
-        """
-
-        cmd, index = self.__send("FWD,%s" % str(index))
+        cmd, index = self._send("FWD", index)
 
         if cmd != "FWD":
             raise UnidenUnexpectedResponseError
 
-        return index
+        return int(index)
 
     def get_free_memory(self):
-        """
-        """
-
-        cmd, free = self.__send("RMB")
+        cmd, free = self._send("RMB")
 
         if cmd != "RMB":
             raise UnidenUnexpectedResponseError
 
-        return free
+        return int(free)
 
     def get_used_memory(self):
-        """
-        """
-
-        cmd, used = self.__send("MEM")
+        cmd, used = self._send("MEM")
 
         if cmd != "MEM":
             raise UnidenUnexpectedResponseError
 
-        return used
+        return int(used)
 
     ########################################################################
     ##  Search/Close Call Settings
     ########################################################################
 
     def get_search_settings(self):
-        """
-        """
-
         cmd, stp, mod, att, dly, skp, code_srch, scr, rep, max_store = \
             self.__call("SCO")
 
@@ -1458,7 +1322,7 @@ class Interface:
             raise UnidenUnexpectedResponseError
 
         return {
-            "search_step": stp,  # FIXME
+            "search_step": int(stp),  # FIXME
             "modulation": mod,
             "attenuation": att == "1",
             "delay_time": dly,
@@ -1473,14 +1337,8 @@ class Interface:
 
     def set_search_settings(self, search_step, modulation, attenuation, delay_time,
             data_skip, ctcss_scss_search, pager_uhf_tv_screen, repeater_find, max_auto_store):
-
-        """
-        """
-
-        cmd, ok = self.__send("SCO,%s" % ",".join(search_step, modulation,
-            attenuation and "1" or "0", delay_time, data_skip and "1" or "0",
-            ctcss_scss_search and "1" or "0", pager_uhf_tv_screen,
-            repeater_find and "1" or "0", max_auto_store))
+        cmd, ok = self._send("SCO", search_step, modulation, attenuation, delay_time,
+            data_skip, ctcss_scss_search, pager_uhf_tv_screen, repeater_find, max_auto_store)
 
         if cmd != "SCO":
             raise UnidenUnexpectedResponseError
@@ -1489,48 +1347,32 @@ class Interface:
 
     set_close_call_settings = set_search_settings
 
-
     def get_global_lockout_frequency(self):
-        """
-        """
-
-        cmd, frequency = self.__send("GLF")
+        cmd, frequency = self._send("GLF")
 
         if cmd != "GLF":
             raise UnidenUnexpectedResultError
 
         return frequency == "-1" and False or frequency
 
-
     def unlock_global_lockout(self, frequency):
-        """
-        """
-
-        cmd, ok = self.__send("ULF,%s" % str(frequency))
+        cmd, ok = self._send("ULF", frequency)
 
         if cmd != "ULF":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def lockout_frequency(self, frequency):
-        """
-        """
-
-        cmd, ok = self.__send("LOF,%s" % frequency)
+        cmd, ok = self._send("LOF", frequency)
 
         if cmd != "LOF":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def get_close_call_settings(self):
-        """
-        """
-
-        cmd, cc_mode, cc_override, alt, cc_band = self.__send("CLC")
+        cmd, cc_mode, cc_override, alt, cc_band = self._send("CLC")
 
         # FIXME: make all the others as thorough as this one...
         if cmd != "CLC" or cc_mode != CC_MODE__VALUES or \
@@ -1554,11 +1396,8 @@ class Interface:
     ########################################################################
 
     def get_custom_search_group(self):
-        """
-        """
-
         # FIXME
-        cmd, value = self.__send("CSG")
+        cmd, value = self._send("CSG")
 
         if cmd != "CSG":
             raise UnidenUnexpectedResponseError
@@ -1566,23 +1405,16 @@ class Interface:
         return value
 
     def set_custom_search_group(self, setting):
-        """
-        """
-
         # FIXME
-        cmd, ok = self.__send("CSG,%s" % setting)
+        cmd, ok = self._send("CSG", setting)
 
         if cmd != "CSG":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def get_custom_search_settings(self, search_index):
-        """
-        """
-
-        cmd, name, limit_l, limit_h, stp, mod, att, dly, skp = self.__send("CSP")
+        cmd, name, limit_l, limit_h, stp, mod, att, dly, skp = self._send("CSP")
 
         if cmd != "CSP":
             raise UnidenUnexpectedResponseError
@@ -1591,7 +1423,7 @@ class Interface:
             "name": name,
             "lower_limit": limit_l,
             "upper_limit": limit_h,
-            "search_step": stp,
+            "search_step": int(stp),
             "modulation": mod,
             "attenuation": att == "1",
             "delay_time": dly,
@@ -1600,12 +1432,8 @@ class Interface:
 
     def set_custom_search_settings(self, name, lower_limit, upper_limit, search_step,
             modulation, attenuation, delay_time, data_skip):
-
-        """
-        """
-
-        cmd, ok = self.__send("CSP,%s" % ",".join(name, lower_limit, upper_limit, search_step,
-            modulation, attenuation and "1" or "0", delay_time, data_skip and "1" or "0"))
+        cmd, ok = self._send("CSP", name, lower_limit, upper_limit, search_step,
+            modulation, attenuation, delay_time, data_skip)
 
         if cmd != "CSP":
             raise UnidenUnexpectedResponseError
@@ -1617,10 +1445,7 @@ class Interface:
     ########################################################################
 
     def get_weather_priority_setting(self):
-        """
-        """
-
-        cmd, priority = self.__send("WPR")
+        cmd, priority = self._send("WPR")
 
         if cmd != "WPR" or priority not in WEATHER_PRIORITY__VALUES:
             raise UnidenUnexpectedResponseError
@@ -1628,26 +1453,19 @@ class Interface:
         return priority
 
     def set_weather_priority_setting(self, priority):
-        """
-        """
-
         if priority not in WEATHER_PRIORITY__VALUES:
             raise ValueError
 
-        cmd, ok = self.__send("WPR,%s" % priority)
+        cmd, ok = self._send("WPR", priority)
 
         if cmd != "WPR":
             raise UnidenUnexpectedResponseError
 
         return ok == "OK"
 
-
     def get_same_group_settings(self, same_index):
-        """
-        """
-
         cmd, same_index, name, fips1, fips2, fips3, fips4, fips5, fips6, fips7, fips8 = \
-            self.__send("SGB,%s" % str(same_index))
+            self._send("SGB", same_index)
 
         if cmd != "SGP":
             raise UnidenUnexpectedResponseError
@@ -1666,25 +1484,18 @@ class Interface:
 
     def set_same_group_settings(self, same_index, name, fips1, fips2, fips3, fips4, fips5,
             fips6, fips7, fips8):
-
-        """
-        """
-
-        cmd, ok = self.__send("SGP,%s" % ",".join(str(same_index), name, fips1, fips2, fips3,
-            fips4, fips5, fips6, fips7, fips8))
+        cmd, ok = self._send("SGP", same_index, name, fips1, fips2, fips3,
+            fips4, fips5, fips6, fips7, fips8)
 
     ########################################################################
     ##  Motorola Custom Band Plan
     ########################################################################
 
     def get_motorola_custom_band_plan_settings(self, index):
-        """
-        """
-
         # TODO : this has to be revisited
         cmd, lower1, upper1, step1, offset1, lower2, upper2, step2, offset2, lower3, upper3, \
             step3, offset3, lower4, upper4, step4, offset4, lower5, upper5, step5, offset5 = \
-            self.__send("MCP")
+            self._send("MCP")
 
         if cmd != "MCP":
             raise UnidenUnexpectedReponseError
@@ -1715,14 +1526,10 @@ class Interface:
     def set_motorola_custom_band_plan_settings(self, lower1, upper1, step1, offset1,
             lower2, upper2, step2, offset2, lower3, upper3, step3, offset3, lower4,
             upper4, step4, offset4, lower5, upper5, step5, offset5):
-
-        """
-        """
-
         # TODO : this has to be revisited
-        cmd, ok = self.__send("MCP,%s" % ",".join(lower1, upper1, step1, offset1,
-            lower2, upper2, step2, offset2, lower3, upper3, step3, offset3, lower4,
-            upper4, step4, offset4, lower5, upper5, step5, offset5))
+        cmd, ok = self._send("MCP", lower1, upper1, step1, offset1, lower2, upper2,
+            step2, offset2, lower3, upper3, step3, offset3, lower4, upper4, step4,
+            offset4, lower5, upper5, step5, offset5)
 
         if cmd != "MCP":
             raise UnidenUnexpectedResponseError
@@ -1734,28 +1541,20 @@ class Interface:
     ########################################################################
 
     def get_window_voltage(self):
-        """
-        """
-
-        cmd, av, value = self.__send("WIN")
+        cmd, av, value = self._send("WIN")
 
         if cmd != "WIN":
             raise UnidenUnexpectedResponseError
 
         return av, value
 
-
-    def get_battery_voltage(swlf):
-        """
-        """
-
-        cmd, value = self.__send("BAV")
+    def get_battery_voltage(self):
+        cmd, value = self._send("BAV")
 
         if cmd != "BAV":
             raise UnidenUnexpectedResponseError
 
-        return value
-
+        return int(value)
 
 if __name__ == "__main__":
-    print "compiled to bytecode!"
+    print("compiled to bytecode!")
