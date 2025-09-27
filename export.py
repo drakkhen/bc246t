@@ -37,9 +37,6 @@ def main(include_defaults=False):
     while sys_idx:
         system = i.get_system_info(sys_idx)
 
-        if system['attenuation'] == '':
-            system['attenuation'] = '0'
-
         system['groups'] = []
         group_idx = system['group_head_index']
 
@@ -63,10 +60,10 @@ def main(include_defaults=False):
                     if k in CHANNEL_DEFAULTS and channel[k] == CHANNEL_DEFAULTS[k] and not include_defaults:
                         channel.pop(k)
 
-                group['channels'].append(channel)
                 channel_idx = channel.pop('forward_index')
+                group['channels'].append(channel)
 
-            for _ in ['reverse_index', 'system_index', 'channel_head_index', 'channel_tail_index']:
+            for _ in ['group_sequence', 'quick_key', 'reverse_index', 'system_index', 'channel_head_index', 'channel_tail_index']:
                 group.pop(_)
 
             group_keys = list(group.keys())
@@ -74,10 +71,10 @@ def main(include_defaults=False):
                 if k in GROUP_DEFAULTS and group[k] == GROUP_DEFAULTS[k] and not include_defaults:
                     group.pop(k)
 
-            system['groups'].append(group)
             group_idx = group.pop('forward_index')
+            system['groups'].append(group)
 
-        for _ in ['reverse_index', 'group_head_index', 'group_tail_index']:
+        for _ in ['sequence_number', 'quick_key', 'reverse_index', 'group_head_index', 'group_tail_index']:
             system.pop(_)
 
         system_keys = list(system.keys())
@@ -85,8 +82,8 @@ def main(include_defaults=False):
             if k in SYSTEM_DEFAULTS and system[k] == SYSTEM_DEFAULTS[k] and not include_defaults:
                 system.pop(k)
 
-        data['systems'].append(system)
         sys_idx = system.pop('forward_index')
+        data['systems'].append(system)
 
     i.exit_program_mode()
 

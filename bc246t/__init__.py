@@ -1002,8 +1002,9 @@ class Interface:
         }
 
     def set_system_info(self, index, name, v={}):
-        orig = self.get_system_info(index)
-        v |= orig | SYSTEM_DEFAULTS
+        for k in SYSTEM_DEFAULTS.keys():
+            if v.get(k) is None:
+                v[k] = SYSTEM_DEFAULTS[k]
 
         if v['quick_key'] is None:
             v['quick_key'] = '.'
@@ -1154,8 +1155,9 @@ class Interface:
         }
 
     def set_group_info(self, index, name, v={}):
-        orig = self.get_group_info(index)
-        v |= orig | GROUP_DEFAULTS
+        for k in GROUP_DEFAULTS.keys():
+            if v.get(k) is None:
+                v[k] = GROUP_DEFAULTS[k]
 
         if v['quick_key'] is None:
             v['quick_key'] = '.'
@@ -1216,8 +1218,9 @@ class Interface:
         }
 
     def set_channel_info(self, index, name, frequency, modulation, v={}):
-        orig = self.get_channel_info(index)
-        v |= orig | CHANNEL_DEFAULTS
+        for k in CHANNEL_DEFAULTS.keys():
+            if v.get(k) is None:
+                v[k] = CHANNEL_DEFAULTS[k]
 
         cmd, ok = self._send("CIN", index, name, ("%08d" % frequency), v['search_step'],
             modulation, v['ctcss_dcs_mode'], v['ctcss_dcs_tone_lockout'], v['lockout'],

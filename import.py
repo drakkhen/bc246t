@@ -98,13 +98,16 @@ def main(source):
 
         i.set_system_info(system_idx, s['name'], v)
 
+        system_group_count = 0
+
         for g in s['groups']:
             print(f"        {g['group_name']}:")
             print('')
             group_idx = i.append_channel_group(system_idx)
             group_count += 1
+            system_group_count += 1
 
-            s['quick_key'] = group_count < 10 and group_count or None
+            g['quick_key'] = system_group_count < 10 and system_group_count or None
             g['group_sequence'] = group_count
 
             v = {}
@@ -114,7 +117,7 @@ def main(source):
             i.set_group_info(group_idx, g['group_name'], v)
 
             for c in g['channels']:
-                print(f"            {c['name']} ({c['frequency']/10000:.5f})")
+                print(f"            {c['name']:20} {c['frequency']/10000:.5f} {c['modulation']}")
                 channel_idx = i.append_channel(group_idx)
                 channel_count += 1
 
@@ -126,6 +129,7 @@ def main(source):
 
             print('')
 
+    i.push_key('S')
     i.exit_program_mode()
 
     print(f"[*] Created {system_count} systems, {group_count} groups, and {channel_count} channels!")
