@@ -1,38 +1,17 @@
+__pycache__/
 *.py[cod]
 
-# C extensions
-*.so
+# Environments
+.venv/
+venv/
+.direnv/
 
-# Packages
-*.egg
-*.egg-info
-dist
-build
-eggs
-parts
-bin
-var
-sdist
-develop-eggs
-.installed.cfg
-lib
-lib64
+# Build output
+build/
+dist/
+*.egg-info/
 
-# Installer logs
-pip-log.txt
-
-# Unit test / coverage reports
+# Tool caches
+.pytest_cache/
+.ruff_cache/
 .coverage
-.tox
-nosetests.xml
-
-# Translations
-*.mo
-
-# Mr Developer
-.mr.developer.cfg
-.project
-.pydevproject
-
-venv
-.i-know-what-im-doing
