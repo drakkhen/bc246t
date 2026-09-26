@@ -1,215 +1,111 @@
-schema = {
-    'type': 'object',
-    'requried': ['info', 'settings', 'systems'],
-    'additionalProperties': False,
-    'properties': {
-        'meta': {'type': 'object'},
-        'info': {
-            'type': 'object',
-            'required': ['model','firmware'],
-            'properties': {
-                'model': {'const': 'BC246T'},
-                'firmware': {'type': 'string'},
-            }
+"""
+JSON Schema for the backup files written by ``bc246t export``.
+
+Only conventional systems are supported. Frequencies are in 100 Hz units
+and search steps in 10 Hz units, as the scanner stores them.
+"""
+
+from typing import Any
+
+from .enums import SEARCH_STEPS, Backlight, GroupType, Modulation, PriorityMode, SystemType
+from .scanner import NAME_MAX_LENGTH
+
+_NAME = {"type": "string", "maxLength": NAME_MAX_LENGTH}
+_QUICK_KEY = {"type": ["integer", "null"], "minimum": 1, "maximum": 10}
+
+# The receive ranges of the BC246T, in 100 Hz units.
+_BANDS_MHZ = ((25, 54), (108, 174), (216, 225), (400, 512), (806, 956), (1240, 1300))
+
+CHANNEL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["name", "frequency", "modulation"],
+    "additionalProperties": False,
+    "properties": {
+        "name": _NAME,
+        "frequency": {
+            "type": "integer",
+            "multipleOf": 25,
+            "oneOf": [
+                {"minimum": low * 10_000, "maximum": high * 10_000} for low, high in _BANDS_MHZ
+            ],
         },
-        'settings': {
-            'type': 'object',
-            'required': ['backlight', 'battery_save', 'key_beep', 'greeting', 'priority_mode'],
-            'properties': {
-                'backlight': {
-                    'type': 'string',
-                    'enum': [
-                        '10', # 10sec
-                        '30', # 30sec
-                        'KY', # KEYPRESS
-                        'SQ', # SQUELCH
-                    ],
-                },
-                'battery_save': {'type': 'boolean'},
-                'key_beep': {'type': 'boolean'},
-                'greeting': {
-                    'type': 'array',
-                    'minItems': 1,
-                    'maxItems': 2,
-                    'items': {
-                        'type': 'string',
-                        'maxLength': 16
-                    },
-                },
-                'priority_mode': {
-                    'type': 'integer',
-                    'minimum': 0,
-                    'maximum': 2
-                },
-            }
+        "search_step": {"type": "integer", "enum": list(SEARCH_STEPS)},
+        "modulation": {"type": "string", "enum": [m.value for m in Modulation]},
+        "ctcss_dcs_mode": {"type": "integer", "minimum": 0, "maximum": 231},
+        "ctcss_dcs_tone_lockout": {"type": "boolean"},
+        "lockout": {"type": "boolean"},
+        # Older exports wrote priority as 0 or 1.
+        "priority": {"oneOf": [{"type": "boolean"}, {"type": "integer", "enum": [0, 1]}]},
+        "attenuation": {"type": "boolean"},
+        "alert": {"type": "boolean"},
+    },
+}
+
+GROUP_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["group_name"],
+    "additionalProperties": False,
+    "properties": {
+        "group_type": {"type": "string", "const": GroupType.CHANNEL.value},
+        "group_name": _NAME,
+        "quick_key": _QUICK_KEY,
+        "lockout": {"type": "boolean"},
+        "group_sequence": {"type": "integer", "minimum": 0},
+        "channels": {"type": "array", "items": CHANNEL_SCHEMA},
+    },
+}
+
+SYSTEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["system_type", "name"],
+    "additionalProperties": False,
+    "properties": {
+        "system_type": {"type": "string", "const": SystemType.CONVENTIONAL.value},
+        "name": _NAME,
+        "quick_key": _QUICK_KEY,
+        "hold_time": {"type": "integer", "minimum": 0, "maximum": 255},
+        "lockout": {"type": "boolean"},
+        "attenuation": {"type": "boolean"},
+        "delay_time": {"type": "integer", "minimum": 0, "maximum": 5},
+        "data_skip": {"type": "boolean"},
+        "emergency_alert": {"type": "boolean"},
+        "sequence_number": {"type": "integer", "minimum": 1, "maximum": 200},
+        "groups": {"type": "array", "items": GROUP_SCHEMA},
+    },
+}
+
+SCHEMA: dict[str, Any] = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["info", "settings", "systems"],
+    "additionalProperties": False,
+    "properties": {
+        "meta": {"type": "object"},
+        "info": {
+            "type": "object",
+            "required": ["model", "firmware"],
+            "properties": {
+                "model": {"const": "BC246T"},
+                "firmware": {"type": "string"},
+            },
         },
-        'systems': {
-            'type': 'array',
-            'items': {
-                'type': 'object',
-                'required': ['system_type', 'name'],
-                'properties': {
-                    'system_type': {
-                        'type': 'string',
-                        'enum': [
-                            'CNV',  # CONVENTIONAL
-                            'M82S', # MOT_800_T2_STD
-                            'M82P', # MOT_800_T2_SPL
-                            'M92',  # MOT_900_T2
-                            'MV2',  # MOT_VHF_T2
-                            'MU2',  # MOT_UHF_T2
-                            'M81S', # MOT_800_T1_STD
-                            'M81P', # MOT_800_T1_SPL
-                            'EDN',  # EDACS_NARROW
-                            'EDW',  # EDACS_WIDE
-                            'EDS',  # EDACS_SCAT
-                            'LTR',  # LTR
-                            'M82C', # MOT_800_T2_CUS
-                            'M81C', # MOT_800_T1_CUS
-                        ]
-                    },
-                    'name': {
-                        'type': 'string',
-                        'maxLength': 16,
-                    },
-                    'quick_key': {
-                        'type': ['integer', 'null'],
-                        'minimum': 1,
-                        'maximum': 9,
-                    },
-                    'hold_time': {
-                        'type': 'integer',
-                        'minimum': 0,
-                        'maximum': 255,
-                    },
-                    'lockout': {'type': 'boolean'},
-                    'attenuation': {'type': 'boolean'},
-                    'delay_time': {
-                        'type': 'integer',
-                        'minimum': 0,
-                        'maximum': 5,
-                    },
-                    'data_skip': {'type': 'boolean'},
-                    'emergency_alert': {'type': 'boolean'},
-                    'sequence_number': {
-                        'type': 'integer',
-                        'minimum': 1,
-                        'maximum': 200,
-                    },
-                    'groups': {
-                        'type': 'array',
-                        'items': {
-                            'type': 'object',
-                            'required': ['group_name'],
-                            'properties': {
-                                'group_type': {
-                                    'type': 'string',
-                                    'enum': [
-                                        'C', # CHANNEL GROUP
-                                        'T', # TGID GROUP
-                                    ],
-                                },
-                                'group_name': {
-                                    'type': 'string',
-                                    'maxLength': 16,
-                                },
-                                'quick_key': {
-                                    'type': ['integer', 'null'],
-                                    'minimum': 1,
-                                    'maximum': 9,
-                                },
-                                'lockout': {'type': 'boolean'},
-                                'group_sequence': {
-                                    'type': 'integer',
-                                    'minimum': 0,
-                                },
-                                'channels': {
-                                    'type': 'array',
-                                    'items': {
-                                        'type': 'object',
-                                        'required': ['name', 'frequency', 'modulation'],
-                                        'properties': {
-                                            'name': {
-                                                'type': 'string',
-                                                'maxLength': 16,
-                                            },
-                                            'frequency': {
-                                                'type': 'number',
-                                                'multipleOf': 25,
-                                                'oneOf': [
-                                                    { # 25.0000 - 54.0000
-                                                        'minimum': 250000,
-                                                        'maximum': 540000,
-                                                    },
-                                                    { # 108.0000 - 174.0000
-                                                        'minimum': 1080000,
-                                                        'maximum': 1740000,
-                                                    },
-                                                    { # 216.0000 - 225.0000
-                                                        'minimum': 2160000,
-                                                        'maximum': 2250000,
-                                                    },
-                                                    { # 400.0000 - 512.0000
-                                                        'minimum': 4000000,
-                                                        'maximum': 5120000,
-                                                    },
-                                                    { # 806.0000 - 956.0000
-                                                        'minimum': 8060000,
-                                                        'maximum': 9560000,
-                                                    },
-                                                    { # 1240.0000 - 1300.0000
-                                                        'minimum': 12400000,
-                                                        'maximum': 13000000,
-                                                    },
-                                                ],
-                                            },
-                                            'search_step': {
-                                                'type': 'integer',
-                                                'enum': [
-                                                    0,      # AUTO
-                                                    500,    # 5k
-                                                    625,    # 6.25k
-                                                    750,    # 7.5k
-                                                    1000,   # 10k
-                                                    1250,   # 12.5k
-                                                    1500,   # 15k
-                                                    2000,   # 20k
-                                                    2500,   # 25k
-                                                    5000,   # 50k
-                                                    10000,  # 100k
-                                                ],
-                                            },
-                                            'modulation': {
-                                                'type': 'string',
-                                                'enum': [
-                                                    'AUTO',
-                                                    'FM',
-                                                    'NFM',
-                                                    'AM',
-                                                ],
-                                            },
-                                            'ctcss_dcs_mode': {
-                                                'type': 'integer',
-                                                'minimum': 0,
-                                                'maximum': 231,
-                                            },
-                                            'ctcss_dcs_tone_lockout': {'type': 'boolean'},
-                                            'lockout': {'type': 'boolean'},
-                                            'priority': {
-                                                'type': 'integer',
-                                                'minimum': 0,
-                                                'maximum': 2
-                                            },
-                                            'attenuation': {'type': 'boolean'},
-                                            'alert': {'type': 'boolean'},
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+        "settings": {
+            "type": "object",
+            "required": ["backlight", "battery_save", "key_beep", "greeting", "priority_mode"],
+            "additionalProperties": False,
+            "properties": {
+                "backlight": {"type": "string", "enum": [b.value for b in Backlight]},
+                "battery_save": {"type": "boolean"},
+                "key_beep": {"type": "boolean"},
+                "greeting": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "items": _NAME,
+                },
+                "priority_mode": {"type": "integer", "enum": [p.value for p in PriorityMode]},
+            },
+        },
+        "systems": {"type": "array", "items": SYSTEM_SCHEMA},
+    },
 }
