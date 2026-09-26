@@ -73,6 +73,8 @@ CLEAR_MEMORY_TIMEOUT: Final = 20.0
 PROLIFIC_VENDOR_ID: Final = 0x067B
 
 NAME_MAX_LENGTH: Final = 16
+# Printable ASCII without the comma, which separates protocol fields.
+NAME_PATTERN: Final = r"^[\x20-\x2B\x2D-\x7E]*$"
 _LINE_WIDTH: Final = 16
 _PADDED_DISPLAY: Final = re.compile(",".join([f"(.{{{_LINE_WIDTH}}})"] * 4 + ["(.*)"]), re.DOTALL)
 _ERROR_RESPONSES: Final = {
@@ -178,8 +180,8 @@ def _encode_name(value: str | Keep) -> str:
         return ""
     if len(value) > NAME_MAX_LENGTH:
         raise ValueError(f"name longer than {NAME_MAX_LENGTH} characters: {value!r}")
-    if "," in value or "\r" in value:
-        raise ValueError(f"name can't contain a comma or carriage return: {value!r}")
+    if not re.match(NAME_PATTERN, value):
+        raise ValueError(f"names are printable ASCII without commas: {value!r}")
     return value
 
 
@@ -408,6 +410,9 @@ class Scanner:
         The other arguments change the Search/Close Call options, the
         same ones :meth:`set_search_settings` sets. Refused while the
         scanner is in a menu, in direct entry, or saving a quick search.
+
+        ``pager_screen`` and ``uhf_tv_screen`` share one field, so give
+        both or neither.
         """
         self._set(
             "QSH",
@@ -418,7 +423,7 @@ class Scanner:
             _encode(delay_time),
             _encode(data_skip),
             _encode(tone_search),
-            self._encode_screen(pager_screen, uhf_tv_screen),
+            self._encode_screen(pager_screen, uhf_tv_screen, read_back=False),
             _encode(repeater_find),
         )
 
@@ -640,10 +645,14 @@ class Scanner:
         """
         Copy a system under a new name and return the copy's index.
 
-        Raises :class:`CommandError` if there isn't room for the copy.
+        Raises :class:`NoFreeMemoryError`, or :class:`CommandError`, if
+        there isn't room for the copy.
         """
         (value,) = self._query("CPS", str(system_index), _encode_name(name))
-        return _require(_index(value))
+        index = _index(value)
+        if index is None:
+            raise NoFreeMemoryError
+        return index
 
     def get_system_info(self, system_index: int) -> SystemInfo:
         """
@@ -1141,16 +1150,21 @@ class Scanner:
             _encode(max_auto_store),
         )
 
-    def _encode_screen(self, pager: bool | Keep, uhf_tv: bool | Keep) -> str:
+    def _encode_screen(
+        self, pager: bool | Keep, uhf_tv: bool | Keep, *, read_back: bool = True
+    ) -> str:
         """
         Encode the pager and UHF TV screens, which share one field.
 
         When only one is given, the other is read back from the scanner
-        first.
+        first. That needs program mode, so callers outside it pass
+        ``read_back=False`` and must give both or neither.
         """
         if pager is UNCHANGED and uhf_tv is UNCHANGED:
             return ""
         if pager is UNCHANGED or uhf_tv is UNCHANGED:
+            if not read_back:
+                raise ValueError("pass both pager_screen and uhf_tv_screen, or neither")
             current = self.get_search_settings()
             pager = current.pager_screen if pager is UNCHANGED else pager
             uhf_tv = current.uhf_tv_screen if uhf_tv is UNCHANGED else uhf_tv

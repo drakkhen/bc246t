@@ -179,3 +179,37 @@ def test_invalid_backups_are_rejected(change: Any) -> None:
 
     with pytest.raises(ValidationError):
         validate_backup(data)
+
+
+def test_export_omits_fields_the_scanner_leaves_blank(
+    simulated: Scanner, simulator: SimulatedScanner
+) -> None:
+    run_import(simulated, BACKUP)
+    first_system = simulator.blocks[simulator.systems[0]]
+    first_system.emergency_alert = ""  # type: ignore[union-attr]
+
+    exported = run_export(simulated, include_defaults=True)
+
+    assert "emergency_alert" not in exported["systems"][0]
+    validate_backup(exported)
+
+
+@pytest.mark.parametrize("name", ["Fire, EMS", "Café", "Tab\there"])
+def test_names_the_scanner_cant_store_fail_validation(name: str) -> None:
+    data = copy.deepcopy(BACKUP)
+    data["systems"][0]["groups"][0]["channels"][0]["name"] = name
+
+    with pytest.raises(ValidationError):
+        validate_backup(data)
+
+
+def test_bad_names_are_caught_before_the_scanner_is_erased(
+    simulated: Scanner, simulator: SimulatedScanner
+) -> None:
+    data = copy.deepcopy(BACKUP)
+    data["settings"]["greeting"] = ["Hello, world"]
+
+    with pytest.raises(ValidationError), simulated.program_mode():
+        import_programming(simulated, data)
+
+    assert "CLR" not in simulator.sent

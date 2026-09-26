@@ -91,3 +91,14 @@ def test_render_status() -> None:
         "SYS 12 4567890 ATT               ",
         "GRP 1234567       N FM         ",
     ]
+
+
+def test_import_reports_malformed_json(
+    simulator: SimulatedScanner, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "in.json"
+    source.write_text("{not json")
+
+    assert cli.main(["import", "--yes", str(source)]) == 1
+    assert "not valid JSON" in capsys.readouterr().err
+    assert simulator.sent == []

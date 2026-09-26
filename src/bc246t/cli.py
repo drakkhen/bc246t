@@ -121,7 +121,11 @@ def _export(args: argparse.Namespace) -> int:
 
 
 def _import(args: argparse.Namespace) -> int:
-    data = json.loads(args.file.read_text())
+    try:
+        data = json.loads(args.file.read_text())
+    except json.JSONDecodeError as error:
+        print(f"bc246t: {args.file} is not valid JSON: {error}", file=sys.stderr)
+        return 1
     try:
         validate_backup(data)
     except ValidationError as error:

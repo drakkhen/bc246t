@@ -196,9 +196,18 @@ def _default_quick_key(position: int) -> int | None:
 
 
 def _prune(record: dict[str, Any], defaults: dict[str, Any], include_defaults: bool) -> dict:
-    if include_defaults:
-        return record
-    return {key: value for key, value in record.items() if defaults.get(key, object()) != value}
+    """
+    Drop blank fields, and defaults unless ``include_defaults`` is set.
+
+    ``quick_key`` is kept even when ``None``, because that means "no
+    quick key" rather than "not reported".
+    """
+    return {
+        key: value
+        for key, value in record.items()
+        if (value is not None or key == "quick_key")
+        and (include_defaults or defaults.get(key, object()) != value)
+    }
 
 
 def _system_record(system: SystemInfo) -> dict[str, Any]:

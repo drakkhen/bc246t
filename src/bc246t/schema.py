@@ -8,9 +8,9 @@ and search steps in 10 Hz units, as the scanner stores them.
 from typing import Any
 
 from .enums import SEARCH_STEPS, Backlight, GroupType, Modulation, PriorityMode, SystemType
-from .scanner import NAME_MAX_LENGTH
+from .scanner import NAME_MAX_LENGTH, NAME_PATTERN
 
-_NAME = {"type": "string", "maxLength": NAME_MAX_LENGTH}
+_NAME = {"type": "string", "maxLength": NAME_MAX_LENGTH, "pattern": NAME_PATTERN}
 _QUICK_KEY = {"type": ["integer", "null"], "minimum": 1, "maximum": 10}
 
 # The receive ranges of the BC246T, in 100 Hz units.

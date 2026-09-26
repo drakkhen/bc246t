@@ -291,17 +291,12 @@ def test_search_settings_decode_screens() -> None:
     assert settings.max_auto_store == 256
 
 
-def test_tune_reads_back_the_screen_it_was_not_given() -> None:
-    scanner, transport = scripted(
-        {
-            "SCO": "SCO,0,AUTO,0,2,1,0,01000000,1,256",
-            "QSH,01621000,,NFM,,,,,11000000,": "QSH,OK",
-        }
-    )
+def test_tune_encodes_both_screens_without_reading_back() -> None:
+    scanner, transport = scripted({"QSH,01621000,,NFM,,,,,10000000,": "QSH,OK"})
 
-    scanner.tune(1621000, modulation=Modulation.NFM, pager_screen=True)
+    scanner.tune(1621000, modulation=Modulation.NFM, pager_screen=True, uhf_tv_screen=False)
 
-    assert transport.sent == ["SCO", "QSH,01621000,,NFM,,,,,11000000,"]
+    assert transport.sent == ["QSH,01621000,,NFM,,,,,10000000,"]
 
 
 def test_global_lockouts_iterate_until_minus_one() -> None:
@@ -400,3 +395,39 @@ def test_context_manager_closes_the_port() -> None:
         pass
 
     assert transport.closed
+
+
+def test_tune_needs_both_screens_or_neither() -> None:
+    scanner, transport = scripted({})
+
+    with pytest.raises(ValueError, match="both"):
+        scanner.tune(1621000, pager_screen=True)
+
+    assert transport.sent == []
+
+
+def test_set_search_settings_reads_back_the_other_screen() -> None:
+    scanner, transport = scripted(
+        {
+            "SCO": "SCO,0,AUTO,0,2,1,0,01000000,1,256",
+            "SCO,,,,,,,11000000,,": "SCO,OK",
+        }
+    )
+
+    scanner.set_search_settings(pager_screen=True)
+
+    assert transport.sent == ["SCO", "SCO,,,,,,,11000000,,"]
+
+
+def test_copy_system_reports_full_memory() -> None:
+    scanner, _ = scripted({"CPS,4,Copy": "CPS,-1"})
+
+    with pytest.raises(NoFreeMemoryError):
+        scanner.copy_system(4, "Copy")
+
+
+def test_names_outside_printable_ascii_are_refused() -> None:
+    scanner, _ = scripted({})
+
+    with pytest.raises(ValueError):
+        scanner.set_group_info(1, name="Café")
