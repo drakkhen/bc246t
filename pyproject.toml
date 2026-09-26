@@ -28,11 +28,42 @@ dev = [
 bc246t = "bc246t.cli:main"
 
 [tool.ruff]
-line-length = 100
+# PEP 8 allows up to 99 characters when a project agrees on it.
+line-length = 99
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "N",    # pep8-naming
+    "D",    # pydocstyle
+    "I",    # import order
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "D200",  # one-line docstrings keep their quotes on separate lines
+    "D203",  # no blank line before a class docstring
+    "D212",  # the summary starts on the second line (D213)
+    "D105",  # magic methods
+    "D107",  # __init__, documented on the class
+    "SIM905",  # tables read better as a split string
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D1"]
+
+[tool.ruff.lint.pycodestyle]
+# PEP 8: docstrings and comments wrap at 72.
+max-doc-length = 72
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
