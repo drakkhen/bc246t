@@ -7,6 +7,8 @@ name = "bc246t"
 version = "0.2.0"
 description = "Remote control and programming for the Uniden Bearcat BC246T scanner"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "pyserial>=3.5",
